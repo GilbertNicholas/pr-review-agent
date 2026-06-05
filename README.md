@@ -99,4 +99,4 @@ This PR adds a new authentication middleware with proper error handling...
 
 ---
 
-Built by [Gilbert](https://opreklabs.com) · Part of AI Automation Portfolio
+Built by [Gilbert](https://opreklabs.com) · Part of AI Automation Portfolios

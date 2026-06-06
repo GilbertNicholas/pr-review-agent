@@ -1,6 +1,7 @@
 import anthropic
 import json
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,13 @@ class ReviewService:
             )
 
             raw = message.content[0].text
+            logger.info(f"Raw AI response (first 200 chars): {raw[:200]!r}")
+
+            # Strip markdown code block if Claude wraps JSON in ```json ... ```
+            match = re.search(r'\{.*\}', raw, re.DOTALL)
+            if match:
+                raw = match.group()
+
             review_data = json.loads(raw)
             logger.info(f"Review generated, verdict: {review_data.get('verdict')}")
             return review_data

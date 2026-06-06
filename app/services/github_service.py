@@ -1,11 +1,22 @@
 import httpx
 import logging
+import re
 from typing import Optional
 from app.models.github_event import PRWebhookPayload
 
 logger = logging.getLogger(__name__)
 
 GITHUB_API_BASE = "https://api.github.com"
+
+SKIP_FILENAMES = {
+    "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+    "poetry.lock", "Pipfile.lock", "composer.lock",
+    "Gemfile.lock", "go.sum", "go.mod",
+}
+
+SKIP_EXTENSIONS = {".min.js", ".min.css", ".map", ".snap"}
+
+SKIP_PATTERNS = re.compile(r'\.(generated|pb\.go|pb2\.py|pb\.ts)$')
 
 
 class GitHubService:
@@ -28,7 +39,41 @@ class GitHubService:
             logger.error(f"Failed to fetch diff: {response.status_code} - {response.text}")
             return None
 
-        return response.text
+        return self.filter_diff(response.text)
+
+    def filter_diff(self, raw_diff: str) -> str:
+        """Buang file yang tidak relevan dari diff (lock files, minified, generated)."""
+        sections = re.split(r'(?=^diff --git )', raw_diff, flags=re.MULTILINE)
+        kept = []
+
+        for section in sections:
+            if not section.startswith("diff --git"):
+                kept.append(section)
+                continue
+
+            match = re.match(r'^diff --git a/(.+?) b/(.+)', section)
+            if not match:
+                kept.append(section)
+                continue
+
+            filename = match.group(2)
+            basename = filename.split("/")[-1]
+
+            if basename in SKIP_FILENAMES:
+                logger.info(f"Skipping diff for: {filename} (lock/generated file)")
+                continue
+
+            if any(basename.endswith(ext) for ext in SKIP_EXTENSIONS):
+                logger.info(f"Skipping diff for: {filename} (minified/map file)")
+                continue
+
+            if SKIP_PATTERNS.search(filename):
+                logger.info(f"Skipping diff for: {filename} (generated file pattern)")
+                continue
+
+            kept.append(section)
+
+        return "".join(kept)
 
     async def post_comment(self, repo_full_name: str, pr_number: int, body: str) -> bool:
         """Post review comment ke PR."""

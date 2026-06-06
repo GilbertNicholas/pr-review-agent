@@ -115,13 +115,12 @@ async def process_pr_review(payload: PRWebhookPayload):
     )
 
     # 6. Post GitHub Review (dengan inline comments), fallback ke plain comment
-    event_map = {"approve": "APPROVE", "request_changes": "REQUEST_CHANGES", "comment": "COMMENT"}
-    github_event = event_map.get(review.get("verdict", "comment"), "COMMENT")
-
-    success = await github.post_review(repo, pr.number, pr.head.sha, review_body, github_event, inline_comments)
+    # Selalu pakai COMMENT agar tidak gagal saat reviewer == PR author (GitHub limitation)
+    success = await github.post_review(repo, pr.number, pr.head.sha, review_body, "COMMENT", inline_comments)
     if not success:
         logger.warning("Review API failed, falling back to plain comment")
-        await github.post_comment(repo, pr.number, review_body)
+        fallback_body = reviewer.format_as_markdown(review, context)
+        await github.post_comment(repo, pr.number, fallback_body)
 
 
 @router.post("/webhook")

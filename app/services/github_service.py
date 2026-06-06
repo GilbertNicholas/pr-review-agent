@@ -75,6 +75,65 @@ class GitHubService:
 
         return "".join(kept)
 
+    def parse_diff_positions(self, raw_diff: str) -> dict[str, set[int]]:
+        """Parse unified diff, return {filename: set of valid new-file line numbers}.
+        Valid lines = added lines (+) and context lines ( ) — lines that exist in the new file.
+        """
+        positions: dict[str, set[int]] = {}
+        current_file: str | None = None
+        new_line_num = 0
+
+        for line in raw_diff.splitlines():
+            if line.startswith("diff --git"):
+                match = re.match(r'^diff --git a/.+ b/(.+)', line)
+                if match:
+                    current_file = match.group(1)
+                    positions[current_file] = set()
+            elif line.startswith("@@") and current_file:
+                match = re.match(r'^@@ -\d+(?:,\d+)? \+(\d+)', line)
+                if match:
+                    new_line_num = int(match.group(1)) - 1
+            elif current_file:
+                if line.startswith("+") and not line.startswith("+++"):
+                    new_line_num += 1
+                    positions[current_file].add(new_line_num)
+                elif line.startswith(" "):
+                    new_line_num += 1
+                    positions[current_file].add(new_line_num)
+
+        return positions
+
+    async def post_review(
+        self,
+        repo_full_name: str,
+        pr_number: int,
+        commit_sha: str,
+        body: str,
+        event: str,
+        comments: list[dict],
+    ) -> bool:
+        """Post GitHub Pull Request Review dengan inline comments."""
+        url = f"{GITHUB_API_BASE}/repos/{repo_full_name}/pulls/{pr_number}/reviews"
+        json_headers = {**self.headers, "Accept": "application/vnd.github+json"}
+
+        payload = {
+            "commit_id": commit_sha,
+            "body": body,
+            "event": event,
+            "comments": comments,
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=json_headers, json=payload, timeout=30)
+
+        if response.status_code == 200:
+            inline_count = len(comments)
+            logger.info(f"Review posted to PR #{pr_number} with {inline_count} inline comment(s)")
+            return True
+
+        logger.error(f"Failed to post review: {response.status_code} - {response.text}")
+        return False
+
     async def post_comment(self, repo_full_name: str, pr_number: int, body: str) -> bool:
         """Post review comment ke PR."""
         url = f"{GITHUB_API_BASE}/repos/{repo_full_name}/issues/{pr_number}/comments"

@@ -73,11 +73,55 @@ async def process_pr_review(payload: PRWebhookPayload):
     # 3. Generate AI review
     review = reviewer.generate_review(context)
 
-    # 4. Format ke Markdown
-    comment_body = reviewer.format_as_markdown(review, context)
+    # 4. Build inline comments dari issues/suggestions yang punya file+line valid
+    valid_positions = github.parse_diff_positions(diff)
+    severity_emoji = {"high": "🔴", "medium": "🟡", "low": "🔵"}
 
-    # 5. Post comment ke GitHub
-    await github.post_comment(repo, pr.number, comment_body)
+    inline_comments = []
+    summary_issues = []
+    for issue in review.get("critical_issues", []):
+        file = issue.get("file")
+        line = issue.get("line")
+        if file and line and line in valid_positions.get(file, set()):
+            emoji = severity_emoji.get(issue.get("severity", "low"), "🔵")
+            inline_comments.append({
+                "path": file,
+                "line": line,
+                "side": "RIGHT",
+                "body": f"{emoji} **{issue.get('severity', 'low').capitalize()}:** {issue.get('description', '')}",
+            })
+        else:
+            summary_issues.append(issue)
+
+    summary_suggestions = []
+    for suggestion in review.get("suggestions", []):
+        file = suggestion.get("file")
+        line = suggestion.get("line")
+        if file and line and line in valid_positions.get(file, set()):
+            inline_comments.append({
+                "path": file,
+                "line": line,
+                "side": "RIGHT",
+                "body": f"💡 {suggestion.get('description', '')}",
+            })
+        else:
+            summary_suggestions.append(suggestion)
+
+    # 5. Format review body (hanya tampilkan item yang tidak jadi inline comment)
+    review_body = reviewer.format_as_markdown(
+        review, context,
+        issues_override=summary_issues,
+        suggestions_override=summary_suggestions,
+    )
+
+    # 6. Post GitHub Review (dengan inline comments), fallback ke plain comment
+    event_map = {"approve": "APPROVE", "request_changes": "REQUEST_CHANGES", "comment": "COMMENT"}
+    github_event = event_map.get(review.get("verdict", "comment"), "COMMENT")
+
+    success = await github.post_review(repo, pr.number, pr.head.sha, review_body, github_event, inline_comments)
+    if not success:
+        logger.warning("Review API failed, falling back to plain comment")
+        await github.post_comment(repo, pr.number, review_body)
 
 
 @router.post("/webhook")

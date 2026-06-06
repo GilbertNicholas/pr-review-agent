@@ -5,7 +5,7 @@ import re
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are an expert code reviewer. Your job is to review GitHub Pull Request diffs 
+SYSTEM_PROMPT = """You are an expert code reviewer. Your job is to review GitHub Pull Request diffs
 and provide clear, actionable, and constructive feedback.
 
 Focus on:
@@ -15,7 +15,7 @@ Focus on:
 4. Performance concerns
 5. Best practices and patterns
 
-Be concise and specific. Reference line numbers or code snippets where relevant.
+Be concise and specific. When an issue or suggestion relates to a specific file and line, include the exact file path and line number from the diff.
 Avoid nitpicking minor style issues unless a linter/formatter is not configured.
 
 IMPORTANT: Respond ONLY with a valid JSON object in this exact format:
@@ -23,13 +23,24 @@ IMPORTANT: Respond ONLY with a valid JSON object in this exact format:
   "overall_summary": "2-3 sentence summary of the PR",
   "verdict": "approve" | "request_changes" | "comment",
   "critical_issues": [
-    {"description": "issue description", "severity": "high" | "medium" | "low"}
+    {
+      "description": "issue description",
+      "severity": "high" | "medium" | "low",
+      "file": "path/to/file.py",
+      "line": 42
+    }
   ],
   "suggestions": [
-    {"description": "improvement suggestion"}
+    {
+      "description": "improvement suggestion",
+      "file": "path/to/file.py",
+      "line": 42
+    }
   ],
   "positive_notes": ["something done well"]
-}"""
+}
+
+The "file" and "line" fields are optional — only include them when you can pinpoint the exact location in the diff. Omit both fields if the issue is general."""
 
 
 class ReviewService:
@@ -99,8 +110,19 @@ class ReviewService:
             "positive_notes": []
         }
 
-    def format_as_markdown(self, review: dict, pr_context: dict) -> str:
-        """Format review dict menjadi Markdown untuk GitHub comment."""
+    def format_as_markdown(
+        self,
+        review: dict,
+        pr_context: dict,
+        issues_override: list | None = None,
+        suggestions_override: list | None = None,
+    ) -> str:
+        """Format review dict menjadi Markdown untuk GitHub Review body.
+
+        issues_override / suggestions_override: jika diisi, gunakan list ini
+        sebagai pengganti list dari review (untuk menampilkan hanya item yang
+        tidak punya inline comment).
+        """
         verdict_emoji = {
             "approve": "✅",
             "request_changes": "🔴",
@@ -122,8 +144,7 @@ class ReviewService:
             "",
         ]
 
-        # Critical issues
-        critical = review.get("critical_issues", [])
+        critical = issues_override if issues_override is not None else review.get("critical_issues", [])
         if critical:
             lines.append("### Issues Found")
             severity_emoji = {"high": "🔴", "medium": "🟡", "low": "🔵"}
@@ -132,15 +153,13 @@ class ReviewService:
                 lines.append(f"- {emoji} **{issue.get('severity', 'low').capitalize()}:** {issue.get('description', '')}")
             lines.append("")
 
-        # Suggestions
-        suggestions = review.get("suggestions", [])
+        suggestions = suggestions_override if suggestions_override is not None else review.get("suggestions", [])
         if suggestions:
             lines.append("### Suggestions")
             for s in suggestions:
                 lines.append(f"- 💡 {s.get('description', '')}")
             lines.append("")
 
-        # Positive notes
         positives = review.get("positive_notes", [])
         if positives:
             lines.append("### What's Good")

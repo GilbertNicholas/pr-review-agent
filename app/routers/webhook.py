@@ -90,6 +90,7 @@ async def process_pr_review(payload: PRWebhookPayload):
                 "side": "RIGHT",
                 "body": f"{emoji} **{issue.get('severity', 'low').capitalize()}:** {issue.get('description', '')}",
             })
+            summary_issues.append({**issue, "description": f"{issue.get('description', '')} *(↗ inline comment)*"})
         else:
             summary_issues.append(issue)
 
@@ -104,10 +105,11 @@ async def process_pr_review(payload: PRWebhookPayload):
                 "side": "RIGHT",
                 "body": f"💡 {suggestion.get('description', '')}",
             })
+            summary_suggestions.append({**suggestion, "description": f"{suggestion.get('description', '')} *(↗ inline comment)*"})
         else:
             summary_suggestions.append(suggestion)
 
-    # 5. Format review body (hanya tampilkan item yang tidak jadi inline comment)
+    # 5. Format review body dengan semua issues (inline marker untuk yang punya inline comment)
     review_body = reviewer.format_as_markdown(
         review, context,
         issues_override=summary_issues,

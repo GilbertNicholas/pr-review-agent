@@ -20,7 +20,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="PR Review Agent",
     description="AI-powered GitHub Pull Request reviewer",
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan
 )
 
